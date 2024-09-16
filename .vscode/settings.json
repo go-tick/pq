@@ -1,3 +1,15 @@
 {
-    "go.testTimeout": "0"
+    "go.testTimeout": "0",
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "local",
+            "database": "gotick",
+            "username": "postgres",
+            "password": "postgres"
+        }
+    ]
 }

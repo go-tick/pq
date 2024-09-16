@@ -7,13 +7,14 @@ import (
 )
 
 type driver struct {
+	cfg *PqConfig
 }
 
 func (d *driver) OnBeforeJobExecution(*gotick.JobExecutionContext) {
 	panic("unimplemented")
 }
 
-func (d *driver) OnBeforeJobExecutionPlanned(*gotick.JobExecutionContext) {
+func (d *driver) OnBeforeJobExecutionPlan(*gotick.JobExecutionContext) {
 	panic("unimplemented")
 }
 
@@ -29,11 +30,11 @@ func (d *driver) OnJobExecutionInitiated(*gotick.JobExecutionContext) {
 	panic("unimplemented")
 }
 
-func (d *driver) OnJobExecutionNotPlanned(*gotick.JobExecutionContext) {
+func (d *driver) OnJobExecutionSkipped(*gotick.JobExecutionContext) {
 	panic("unimplemented")
 }
 
-func (d *driver) OnJobExecutionSkipped(*gotick.JobExecutionContext) {
+func (d *driver) OnJobExecutionUnplanned(*gotick.JobExecutionContext) {
 	panic("unimplemented")
 }
 
@@ -63,3 +64,15 @@ func (d *driver) UnscheduleJobByScheduleID(ctx context.Context, scheduleID strin
 
 var _ gotick.SchedulerDriver = &driver{}
 var _ gotick.SchedulerSubscriber = &driver{}
+
+func newDriver(cfg *PqConfig) *driver {
+	return &driver{cfg}
+}
+
+func WithPqConfig(cfg *PqConfig) gotick.Option[gotick.SchedulerConfig] {
+	return gotick.WithDriverFactory(func(sc *gotick.SchedulerConfig) gotick.SchedulerDriver {
+		driver := newDriver(cfg)
+		gotick.WithSubscribers(driver)(sc)
+		return driver
+	})
+}
