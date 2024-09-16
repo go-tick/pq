@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.yml"
+      - "examples/**"
+  push:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - "**/*.md"
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test ./... -v -coverprofile=coverage.txt -covermode=atomic -shuffle=on -timeout 120s
+
+      - name: Upload results to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

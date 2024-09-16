@@ -1,0 +1,52 @@
+# .golangci.yml
+run:
+  timeout: 5m
+  tests: true  # Also run linters on test files
+
+linters:
+  enable:
+    - dogsled         # Checks assignments with too many blank identifiers (e.g. x, , , _, := f())
+    - dupl            # Reports potentially duplicated code
+    - dupword         # Reports repeated words
+    - errcheck        # Check that error return values are used
+    - errname         # Finds non-standard error names
+    - gosimple        # Linter for simplifying Go code
+    - gosec           # Inspects source code for security problems by scanning the Go AST
+    - govet           # Vet examines Go source code and reports suspicious constructs
+    - ineffassign     # Detects when assignments to variables are not used
+    - staticcheck     # A collection of static analysis checks
+    - typecheck       # Like `go` typechecker, but with better diagnostics
+    - unused          # Checks for unused variables, constants, etc.
+    - gofmt           # Checks that code is properly formatted
+    - goimports       # Checks that imports are properly formatted
+    - gocyclo         # Checks the cyclomatic complexity of functions
+    - misspell        # Detects commonly misspelled words
+    - prealloc        # Finds slice declarations that could potentially be preallocated
+
+  disable:
+    - godot           # Requires all comments to start with a capital letter
+    - gochecknoglobals # Avoids global variables (disable if globals are necessary)
+    - gochecknoinits  # Avoids usage of init() functions (disable if init() is required)
+
+  # Optional: linters settings
+linters-settings:
+  gofmt:
+    simplify: true  # Simplify code as well as format it
+  gocyclo:
+    min-complexity: 15  # Complexity level to trigger the linter
+  goimports:
+    local-prefixes: github.com/yourorg/yourrepo
+  prealloc:
+    simple: true
+  staticcheck:
+    checks: ['all'] # Run all staticcheck checks
+  misspell:
+    locale: US
+
+output:
+  formats: 
+    - format: colored-line-number
+
+issues:
+  exclude-dirs:
+    - examples

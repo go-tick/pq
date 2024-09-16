@@ -1,0 +1,43 @@
+name: PR Checks
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.yml"
+      - "examples/**"
+
+env:
+  REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  pr-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for all branches
+
+      - name: Fetch main branch
+        run: git fetch origin main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Commitlint
+        run: npx commitlint --from=origin/main --to=HEAD
+
+      - name: Go Lint
+        uses: reviewdog/action-golangci-lint@v2
+        with:
+          fail_on_error: true
+          golangci_lint_flags: "--config=.golangci.yml"
+          reporter: github-pr-review
