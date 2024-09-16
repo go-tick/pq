@@ -9,14 +9,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/misikdmytro/gotick.git"
+    "url": "git+https://github.com/go-tick/pq.git"
   },
   "author": "",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/misikdmytro/gotick/issues"
+    "url": "https://github.com/go-tick/pq/issues"
   },
-  "homepage": "https://github.com/misikdmytro/gotick#readme",
+  "homepage": "https://github.com/go-tick/pq#readme",
   "devDependencies": {
     "@commitlint/cli": "^19.4.1",
     "@commitlint/config-conventional": "^19.4.1",

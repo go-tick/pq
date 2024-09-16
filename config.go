@@ -1,6 +1,6 @@
 package pq
 
-import "github.com/misikdmytro/gotick"
+import gotick "github.com/go-tick/core"
 
 type PqConfig struct {
 	host    string

@@ -3,7 +3,7 @@ package pq
 import (
 	"context"
 
-	"github.com/misikdmytro/gotick"
+	gotick "github.com/go-tick/core"
 )
 
 type driver struct {
