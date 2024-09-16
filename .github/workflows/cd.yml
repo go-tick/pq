@@ -3,8 +3,7 @@ name: CD
 on:
   push:
     branches:
-      - main
-      - release/**
+      - release
   workflow_dispatch:
 
 jobs:
@@ -27,3 +26,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+
+      - name: Create Pull Request
+        if: github.ref == 'refs/heads/release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create --base main --head release --title "Release" --body "Release"
