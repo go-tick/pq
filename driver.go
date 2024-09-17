@@ -2,6 +2,7 @@ package pq
 
 import (
 	"context"
+	"database/sql"
 
 	gotick "github.com/go-tick/core"
 	"github.com/go-tick/pq/internal/repository"
@@ -10,13 +11,15 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type repositoryFactory func(context.Context, string) (repository.Repository, func() error, error)
+type repositoryFactoryWoTx func(context.Context, string) (repository.Repository, func() error, error)
+type repositoryFactoryWithTx func(context.Context, string, *sql.TxOptions) (repository.Repository, func() error, error)
 
 type driver struct {
-	cfg               *PqConfig
-	memberID          string
-	repositoryFactory repositoryFactory
-	cancel            context.CancelFunc
+	cfg                     *PqConfig
+	memberID                string
+	repositoryFactoryWoTx   repositoryFactoryWoTx
+	repositoryFactoryWithTx repositoryFactoryWithTx
+	cancel                  context.CancelFunc
 }
 
 func (d *driver) OnBeforeJobExecution(*gotick.JobExecutionContext) {
@@ -55,12 +58,18 @@ func (d *driver) OnStop() {
 	panic("unimplemented")
 }
 
-func (d *driver) NextExecution(context.Context) *gotick.JobPlannedExecution {
+func (d *driver) NextExecution(ctx context.Context) *gotick.JobPlannedExecution {
+	// repo, close, err := d.repositoryFactoryWithTx(ctx, d.cfg.conn, nil)
+	// if err != nil {
+	// 	return nil
+	// }
+	// defer close()
+
 	panic("unimplemented")
 }
 
 func (d *driver) ScheduleJob(ctx context.Context, job gotick.Job, schedule gotick.JobSchedule) (string, error) {
-	repo, close, err := d.repositoryFactory(ctx, d.cfg.conn)
+	repo, close, err := d.repositoryFactoryWoTx(ctx, d.cfg.conn)
 	if err != nil {
 		return "", err
 	}
@@ -75,21 +84,34 @@ func (d *driver) ScheduleJob(ctx context.Context, job gotick.Job, schedule gotic
 }
 
 func (d *driver) UnscheduleJobByJobID(ctx context.Context, jobID string) error {
-	panic("unimplemented")
+	repo, close, err := d.repositoryFactoryWoTx(ctx, d.cfg.conn)
+	if err != nil {
+		return err
+	}
+	defer close()
+
+	return repo.UnscheduleJobByJobID(ctx, jobID)
 }
 
 func (d *driver) UnscheduleJobByScheduleID(ctx context.Context, scheduleID string) error {
-	panic("unimplemented")
+	repo, close, err := d.repositoryFactoryWoTx(ctx, d.cfg.conn)
+	if err != nil {
+		return err
+	}
+	defer close()
+
+	return repo.UnscheduleJobByScheduleID(ctx, scheduleID)
 }
 
 var _ gotick.SchedulerDriver = &driver{}
 var _ gotick.SchedulerSubscriber = &driver{}
 
-func newDriver(cfg *PqConfig, fact repositoryFactory) *driver {
+func newDriver(cfg *PqConfig, factByConnStr repositoryFactoryWoTx, factByConn repositoryFactoryWithTx) *driver {
 	return &driver{
-		cfg:               cfg,
-		memberID:          uuid.NewString(),
-		repositoryFactory: fact,
-		cancel:            func() {},
+		cfg:                     cfg,
+		memberID:                uuid.NewString(),
+		repositoryFactoryWoTx:   factByConnStr,
+		repositoryFactoryWithTx: factByConn,
+		cancel:                  func() {},
 	}
 }

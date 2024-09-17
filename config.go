@@ -30,7 +30,7 @@ func DefaultPqConfig(options ...gotick.Option[PqConfig]) *PqConfig {
 
 func WithPqDriver(cfg *PqConfig) gotick.Option[gotick.SchedulerConfig] {
 	return gotick.WithDriverFactory(func(sc *gotick.SchedulerConfig) gotick.SchedulerDriver {
-		driver := newDriver(cfg, repository.NewRepository)
+		driver := newDriver(cfg, repository.NewRepositoryWoTx, repository.NewRepositoryWithTx)
 		gotick.WithSubscribers(driver)(sc)
 		return driver
 	})
