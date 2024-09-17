@@ -4,10 +4,19 @@ import (
 	"context"
 
 	gotick "github.com/go-tick/core"
+	"github.com/go-tick/pq/internal/repository"
+	"github.com/google/uuid"
+
+	_ "github.com/lib/pq"
 )
 
+type repositoryFactory func(context.Context, string) (repository.Repository, func() error, error)
+
 type driver struct {
-	cfg *PqConfig
+	cfg               *PqConfig
+	memberID          string
+	repositoryFactory repositoryFactory
+	cancel            context.CancelFunc
 }
 
 func (d *driver) OnBeforeJobExecution(*gotick.JobExecutionContext) {
@@ -51,7 +60,18 @@ func (d *driver) NextExecution(context.Context) *gotick.JobPlannedExecution {
 }
 
 func (d *driver) ScheduleJob(ctx context.Context, job gotick.Job, schedule gotick.JobSchedule) (string, error) {
-	panic("unimplemented")
+	repo, close, err := d.repositoryFactory(ctx, d.cfg.conn)
+	if err != nil {
+		return "", err
+	}
+	defer close()
+
+	sch, err := d.cfg.scheduleSerializer(schedule)
+	if err != nil {
+		return "", err
+	}
+
+	return repo.ScheduleJob(ctx, job.ID(), sch.ScheduleType, sch.Schedule, sch.MaxDelay)
 }
 
 func (d *driver) UnscheduleJobByJobID(ctx context.Context, jobID string) error {
@@ -65,14 +85,11 @@ func (d *driver) UnscheduleJobByScheduleID(ctx context.Context, scheduleID strin
 var _ gotick.SchedulerDriver = &driver{}
 var _ gotick.SchedulerSubscriber = &driver{}
 
-func newDriver(cfg *PqConfig) *driver {
-	return &driver{cfg}
-}
-
-func WithPqConfig(cfg *PqConfig) gotick.Option[gotick.SchedulerConfig] {
-	return gotick.WithDriverFactory(func(sc *gotick.SchedulerConfig) gotick.SchedulerDriver {
-		driver := newDriver(cfg)
-		gotick.WithSubscribers(driver)(sc)
-		return driver
-	})
+func newDriver(cfg *PqConfig, fact repositoryFactory) *driver {
+	return &driver{
+		cfg:               cfg,
+		memberID:          uuid.NewString(),
+		repositoryFactory: fact,
+		cancel:            func() {},
+	}
 }

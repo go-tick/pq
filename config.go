@@ -1,24 +1,24 @@
 package pq
 
-import gotick "github.com/go-tick/core"
+import (
+	gotick "github.com/go-tick/core"
+	"github.com/go-tick/pq/internal/repository"
+)
+
+type PqScheduleSerializer func(gotick.JobSchedule) (PqJobSchedule, error)
+type PqScheduleDeserializer func(PqJobSchedule) (gotick.JobSchedule, error)
 
 type PqConfig struct {
-	host    string
-	port    int
-	user    string
-	pass    string
-	dbName  string
-	sslMode string
+	conn string
+
+	scheduleSerializer   PqScheduleSerializer
+	scheduleDeserializer PqScheduleDeserializer
 }
 
 func DefaultPqConfig(options ...gotick.Option[PqConfig]) *PqConfig {
 	config := &PqConfig{
-		host:    "localhost",
-		port:    5432,
-		user:    "postgres",
-		pass:    "",
-		dbName:  "gotick",
-		sslMode: "disable",
+		scheduleSerializer:   DefaultScheduleSerializer,
+		scheduleDeserializer: DefaultScheduleDeserializer,
 	}
 
 	for _, option := range options {
@@ -28,38 +28,28 @@ func DefaultPqConfig(options ...gotick.Option[PqConfig]) *PqConfig {
 	return config
 }
 
-func WithHost(host string) gotick.Option[PqConfig] {
-	return func(c *PqConfig) {
-		c.host = host
+func WithPqDriver(cfg *PqConfig) gotick.Option[gotick.SchedulerConfig] {
+	return gotick.WithDriverFactory(func(sc *gotick.SchedulerConfig) gotick.SchedulerDriver {
+		driver := newDriver(cfg, repository.NewRepository)
+		gotick.WithSubscribers(driver)(sc)
+		return driver
+	})
+}
+
+func WithConn(conn string) gotick.Option[PqConfig] {
+	return func(config *PqConfig) {
+		config.conn = conn
 	}
 }
 
-func WithPort(port int) gotick.Option[PqConfig] {
-	return func(c *PqConfig) {
-		c.port = port
+func WithScheduleSerializer(serializer PqScheduleSerializer) gotick.Option[PqConfig] {
+	return func(config *PqConfig) {
+		config.scheduleSerializer = serializer
 	}
 }
 
-func WithUser(user string) gotick.Option[PqConfig] {
-	return func(c *PqConfig) {
-		c.user = user
-	}
-}
-
-func WithPass(pass string) gotick.Option[PqConfig] {
-	return func(c *PqConfig) {
-		c.pass = pass
-	}
-}
-
-func WithDbName(dbName string) gotick.Option[PqConfig] {
-	return func(c *PqConfig) {
-		c.dbName = dbName
-	}
-}
-
-func WithSslMode(sslMode string) gotick.Option[PqConfig] {
-	return func(c *PqConfig) {
-		c.sslMode = sslMode
+func WithScheduleDeserializer(deserializer PqScheduleDeserializer) gotick.Option[PqConfig] {
+	return func(config *PqConfig) {
+		config.scheduleDeserializer = deserializer
 	}
 }
