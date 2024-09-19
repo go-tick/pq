@@ -67,7 +67,15 @@ func (d *driver) OnStop() {
 	panic("unimplemented")
 }
 
-func (d *driver) NextExecution(ctx context.Context) *gotick.JobPlannedExecution {
+func (d *driver) Start(context.Context) error {
+	return nil
+}
+
+func (d *driver) Stop() error {
+	return nil
+}
+
+func (d *driver) NextExecution(ctx context.Context) *gotick.NextExecutionResult {
 	repo, close, err := d.repositoryFactoryWithTx(ctx, d.cfg.conn, nil)
 	if err != nil {
 		return nil
@@ -77,7 +85,7 @@ func (d *driver) NextExecution(ctx context.Context) *gotick.JobPlannedExecution 
 	offset := 0
 	jobsToUnschedule := make([]string, 0)
 	plannedExecutions := make([]plannedExecution, 0)
-	var execution *gotick.JobPlannedExecution
+	var execution *gotick.NextExecutionResult
 
 	for {
 		schedules, err := repo.NextExecutions(ctx, 10, offset)
@@ -103,14 +111,11 @@ func (d *driver) NextExecution(ctx context.Context) *gotick.JobPlannedExecution 
 			}
 
 			if execution == nil || execution.PlannedAt.After(*entry.NextRun) {
-				execution = &gotick.JobPlannedExecution{
-					JobScheduledExecution: gotick.JobScheduledExecution{
-						Schedule:   sch,
-						ScheduleID: entry.ID,
-						// ToDo: update contracts to have JobID here
-					},
-					ExecutionID: uuid.NewString(),
-					PlannedAt:   *entry.NextRun,
+				execution = &gotick.NextExecutionResult{
+					JobID:      entry.JobID,
+					Schedule:   sch,
+					ScheduleID: entry.ID,
+					PlannedAt:  *entry.NextRun,
 				}
 			} else {
 				plannedExecutions = append(plannedExecutions, plannedExecution{
@@ -124,7 +129,7 @@ func (d *driver) NextExecution(ctx context.Context) *gotick.JobPlannedExecution 
 	panic("unimplemented")
 }
 
-func (d *driver) ScheduleJob(ctx context.Context, job gotick.Job, schedule gotick.JobSchedule) (string, error) {
+func (d *driver) ScheduleJob(ctx context.Context, jobID string, schedule gotick.JobSchedule) (string, error) {
 	repo, close, err := d.repositoryFactoryWoTx(ctx, d.cfg.conn)
 	if err != nil {
 		return "", err
@@ -138,7 +143,7 @@ func (d *driver) ScheduleJob(ctx context.Context, job gotick.Job, schedule gotic
 
 	next := schedule.First()
 	entry := model.JobSchedule{
-		JobID:        job.ID(),
+		JobID:        jobID,
 		ScheduleType: sch.ScheduleType,
 		Schedule:     sch.Schedule,
 		MaxDelay:     sch.MaxDelay,

@@ -63,7 +63,7 @@ func TestRepositoryScheduleJobShouldDoIt(t *testing.T) {
 			cfg := DefaultPqConfig(WithConn(conn))
 			driver := newDriver(cfg, repository.NewRepositoryWoTx, repository.NewRepositoryWithTx)
 
-			scheduleID, err := driver.ScheduleJob(context.Background(), newJob(uuid.NewString()), tt.schedule)
+			scheduleID, err := driver.ScheduleJob(context.Background(), uuid.NewString(), tt.schedule)
 			require.NoError(t, err)
 			defer func() {
 				err := driver.UnscheduleJobByScheduleID(context.Background(), scheduleID)
