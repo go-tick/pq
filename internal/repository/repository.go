@@ -16,12 +16,13 @@ var (
 )
 
 type Repository interface {
-	ScheduleJob(ctx context.Context, jobID string, scheduleType string, schedule string, maxDelay *time.Duration) (string, error)
+	ScheduleJob(ctx context.Context, sch model.JobSchedule) (string, error)
 	UnscheduleJobByJobID(ctx context.Context, jobID string) error
 	UnscheduleJobByScheduleID(ctx context.Context, scheduleID string) error
-	NextExecutions(ctx context.Context) ([]model.JobSchedule, error)
+	NextExecutions(ctx context.Context, limit, offset int) ([]model.JobSchedule, error)
 	LockJobSchedule(ctx context.Context, lockedBy string, scheduleID string, deadline time.Time) (bool, error)
 	UnlockJobSchedule(ctx context.Context, lockedBy string, scheduleID string) (bool, error)
+	UpdateNextRun(ctx context.Context, scheduleID string, nextRun time.Time) error
 }
 
 type Connection interface {
@@ -39,16 +40,17 @@ type repository struct {
 	db Connection
 }
 
-func (r *repository) ScheduleJob(ctx context.Context, jobID string, scheduleType string, schedule string, maxDelay *time.Duration) (string, error) {
+func (r *repository) ScheduleJob(ctx context.Context, sch model.JobSchedule) (string, error) {
 	var scheduleID string
 	err := r.db.GetContext(
 		ctx,
 		&scheduleID,
-		`SELECT create_job_schedule($1, $2, $3, $4)`,
-		jobID,
-		scheduleType,
-		schedule,
-		maxDelay,
+		`SELECT create_job_schedule($1, $2, $3, $4, $5)`,
+		sch.JobID,
+		sch.ScheduleType,
+		sch.Schedule,
+		sch.MaxDelay,
+		sch.NextRun,
 	)
 
 	return scheduleID, err
@@ -64,9 +66,16 @@ func (r *repository) UnscheduleJobByScheduleID(ctx context.Context, scheduleID s
 	return err
 }
 
-func (r *repository) NextExecutions(ctx context.Context) ([]model.JobSchedule, error) {
+func (r *repository) NextExecutions(ctx context.Context, limit, offset int) ([]model.JobSchedule, error) {
 	var schedules []model.JobSchedule
-	err := r.db.SelectContext(ctx, &schedules, `CALL next_executions(10)`)
+	err := r.db.SelectContext(
+		ctx,
+		&schedules,
+		`CALL next_executions($1, $2)`,
+		limit,
+		offset,
+	)
+
 	return schedules, err
 }
 
@@ -95,6 +104,11 @@ func (r *repository) UnlockJobSchedule(ctx context.Context, lockedBy string, sch
 	)
 
 	return unlocked, err
+}
+
+func (r *repository) UpdateNextRun(ctx context.Context, scheduleID string, nextRun time.Time) error {
+	_, err := r.db.ExecContext(ctx, `CALL update_next_run($1, $2)`, scheduleID, nextRun)
+	return err
 }
 
 func NewRepositoryWoTx(ctx context.Context, conn string) (Repository, func() error, error) {

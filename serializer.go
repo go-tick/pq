@@ -23,7 +23,7 @@ func DefaultScheduleSerializer(schedule gotick.JobSchedule) (PqJobSchedule, erro
 		maxDelay = &md
 	}
 
-	if _, err := cron.ParseStandard(s); err != nil {
+	if _, err := cron.ParseStandard(s); err == nil {
 		// it's cron
 		return PqJobSchedule{
 			ScheduleType: "cron",
@@ -32,9 +32,9 @@ func DefaultScheduleSerializer(schedule gotick.JobSchedule) (PqJobSchedule, erro
 		}, nil
 	}
 
-	if strings.Contains(",", s) {
+	if strings.Contains(s, ",") {
 		// it's seq
-		for _, ts := range strings.Split(",", s) {
+		for _, ts := range strings.Split(s, ",") {
 			if _, err := time.Parse(time.RFC3339, ts); err != nil {
 				return PqJobSchedule{}, ErrCannotParseSchedule
 			}

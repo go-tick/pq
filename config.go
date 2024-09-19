@@ -13,6 +13,8 @@ type PqConfig struct {
 
 	scheduleSerializer   PqScheduleSerializer
 	scheduleDeserializer PqScheduleDeserializer
+
+	errorListeners []ErrorListener
 }
 
 func DefaultPqConfig(options ...gotick.Option[PqConfig]) *PqConfig {
@@ -51,5 +53,11 @@ func WithScheduleSerializer(serializer PqScheduleSerializer) gotick.Option[PqCon
 func WithScheduleDeserializer(deserializer PqScheduleDeserializer) gotick.Option[PqConfig] {
 	return func(config *PqConfig) {
 		config.scheduleDeserializer = deserializer
+	}
+}
+
+func WithErrorListeners(listeners ...ErrorListener) gotick.Option[PqConfig] {
+	return func(config *PqConfig) {
+		config.errorListeners = append(config.errorListeners, listeners...)
 	}
 }

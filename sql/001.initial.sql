@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS job_schedules(
     schedule TEXT NOT NULL,
     max_delay INTERVAL,
     last_run TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL,
+    next_run TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL,
     locked_by VARCHAR(36) DEFAULT NULL,
     locked_until TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL
 );
@@ -17,7 +18,7 @@ CREATE TABLE IF NOT EXISTS job_schedules(
 -- 2. Indexes
 ---------------------------------------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS job_schedules_job_id_idx ON job_schedules(job_id);
-CREATE INDEX IF NOT EXISTS job_schedules_last_run_idx ON job_schedules(last_run);
+CREATE INDEX IF NOT EXISTS job_schedules_next_run_idx ON job_schedules(next_run);
 ---------------------------------------------------------------------------------------------------------
 -- 3. Functions && Procedures
 ---------------------------------------------------------------------------------------------------------
@@ -25,12 +26,25 @@ CREATE OR REPLACE FUNCTION create_job_schedule(
         _job_id VARCHAR(256),
         _schedule_type VARCHAR(32),
         _schedule TEXT,
-        _max_delay INTERVAL
+        _max_delay INTERVAL,
+        _next_run TIMESTAMP WITHOUT TIME ZONE
     ) RETURNS UUID AS $$
 DECLARE job_schedule_id UUID;
 BEGIN
-INSERT INTO job_schedules(job_id, schedule_type, schedule, max_delay)
-VALUES(_job_id, _schedule_type, _schedule, _max_delay)
+INSERT INTO job_schedules(
+        job_id,
+        schedule_type,
+        schedule,
+        max_delay,
+        next_run
+    )
+VALUES(
+        _job_id,
+        _schedule_type,
+        _schedule,
+        _max_delay,
+        _next_run
+    )
 RETURNING id INTO job_schedule_id;
 RETURN job_schedule_id;
 END;
@@ -55,6 +69,7 @@ CREATE OR REPLACE FUNCTION next_executions(_limit INT, _offset INT) RETURNS TABL
         schedule TEXT,
         max_delay INTERVAL,
         last_run TIMESTAMP WITHOUT TIME ZONE,
+        next_run TIMESTAMP WITHOUT TIME ZONE,
         locked_by VARCHAR(36),
         locked_until TIMESTAMP WITHOUT TIME ZONE
     ) AS $$ BEGIN RETURN QUERY
@@ -64,12 +79,13 @@ SELECT js.id,
     js.schedule,
     js.max_delay,
     js.last_run,
+    js.next_run,
     js.locked_by,
     js.locked_until
 FROM job_schedules js
 WHERE (
-        js.last_run IS NULL
-        OR js.last_run <= NOW()
+        js.next_run IS NULL
+        OR js.next_run <= NOW()
     )
     AND (
         js.locked_until IS NULL
@@ -78,6 +94,18 @@ WHERE (
 ORDER BY js.last_run ASC
 LIMIT _limit OFFSET _offset FOR
 UPDATE SKIP LOCKED;
+END;
+$$ LANGUAGE plpgsql;
+---------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE update_next_run(
+        _job_schedule_id UUID,
+        _next_run TIMESTAMP WITHOUT TIME ZONE
+    ) AS $$ BEGIN
+UPDATE job_schedules
+SET next_run = _next_run,
+    locked_until = NULL,
+    locked_by = NULL
+WHERE id = _job_schedule_id;
 END;
 $$ LANGUAGE plpgsql;
 ---------------------------------------------------------------------------------------------------------
@@ -114,6 +142,20 @@ WHERE id = _job_schedule_id
     AND locked_by = _locked_by
 RETURNING id INTO updated_id;
 RETURN updated_id IS NOT NULL;
+END;
+$$ LANGUAGE plpgsql;
+---------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE update_last_run(
+        _job_schedule_id UUID,
+        _last_run TIMESTAMP WITHOUT TIME ZONE,
+        _next_run TIMESTAMP WITHOUT TIME ZONE
+    ) AS $$ BEGIN
+UPDATE job_schedules
+SET last_run = _last_run,
+    next_run = _next_run,
+    locked_until = NULL,
+    locked_by = NULL
+WHERE id = _job_schedule_id;
 END;
 $$ LANGUAGE plpgsql;
 ---------------------------------------------------------------------------------------------------------

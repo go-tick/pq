@@ -9,6 +9,7 @@ type JobSchedule struct {
 	Schedule     string         `db:"schedule"`
 	MaxDelay     *time.Duration `db:"max_delay"`
 	LastRun      *time.Time     `db:"last_run"`
+	NextRun      *time.Time     `db:"next_run"`
 	LockedBy     *string        `db:"locked_by"`
 	LockedAt     *time.Time     `db:"locked_at"`
 }

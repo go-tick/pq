@@ -10,5 +10,19 @@ services:
         volumes:
             - data:/var/lib/postgresql/data
 
+    initial:
+        image: postgres:16
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_DB: gotick
+            POSTGRES_HOST: db
+        depends_on:
+            - db
+        command: /tmp/init.sh
+        volumes:
+            - ./sql/001.initial.sql:/tmp/initial.sql
+            - ./init.sh:/tmp/init.sh
+
 volumes:
     data:
