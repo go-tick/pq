@@ -100,7 +100,7 @@ func (d *driver) NextExecution(ctx context.Context) (execution *gotick.NextExecu
 
 			if execution == nil || execution.PlannedAt.After(*entry.NextRun) {
 				execution = &gotick.NextExecutionResult{
-					JobID:      entry.JobID,
+					JobID:      gotick.JobID(entry.JobID),
 					Schedule:   sch,
 					ScheduleID: entry.ID,
 					PlannedAt:  *entry.NextRun,
@@ -136,7 +136,7 @@ func (d *driver) NextExecution(ctx context.Context) (execution *gotick.NextExecu
 	return execution
 }
 
-func (d *driver) ScheduleJob(ctx context.Context, jobID string, schedule gotick.JobSchedule) (string, error) {
+func (d *driver) ScheduleJob(ctx context.Context, jobID gotick.JobID, schedule gotick.JobSchedule) (string, error) {
 	repo, close, err := d.repositoryFactoryWoTx(ctx, d.cfg.conn)
 	if err != nil {
 		return "", err
@@ -150,7 +150,7 @@ func (d *driver) ScheduleJob(ctx context.Context, jobID string, schedule gotick.
 
 	first := schedule.First()
 	entry := model.JobSchedule{
-		JobID:        jobID,
+		JobID:        string(jobID),
 		ScheduleType: sch.ScheduleType,
 		Schedule:     sch.Schedule,
 		Metadata:     sch.Metadata,
@@ -160,14 +160,14 @@ func (d *driver) ScheduleJob(ctx context.Context, jobID string, schedule gotick.
 	return repo.ScheduleJob(ctx, entry)
 }
 
-func (d *driver) UnscheduleJobByJobID(ctx context.Context, jobID string) error {
+func (d *driver) UnscheduleJobByJobID(ctx context.Context, jobID gotick.JobID) error {
 	repo, close, err := d.repositoryFactoryWoTx(ctx, d.cfg.conn)
 	if err != nil {
 		return err
 	}
 	defer close()
 
-	return repo.UnscheduleJobByJobID(ctx, jobID)
+	return repo.UnscheduleJobByJobID(ctx, string(jobID))
 }
 
 func (d *driver) UnscheduleJobByScheduleID(ctx context.Context, scheduleID string) error {

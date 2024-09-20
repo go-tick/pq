@@ -17,7 +17,7 @@ import (
 const conn = "host=localhost port=5432 user=postgres password=postgres dbname=gotick sslmode=disable"
 
 type jobWithDelay struct {
-	id         string
+	id         gotick.JobID
 	delay      time.Duration
 	executions []*gotick.JobExecutionContext
 	once       sync.Once
@@ -38,7 +38,7 @@ func (j *jobWithDelay) Execute(ctx *gotick.JobExecutionContext) {
 	j.once.Do(func() { close(j.done) })
 }
 
-func (j *jobFactory) Create(jobID string) gotick.Job {
+func (j *jobFactory) Create(jobID gotick.JobID) gotick.Job {
 	for _, job := range j.jobs {
 		if job.id == jobID {
 			return job
@@ -56,7 +56,7 @@ var _ gotick.Job = (*jobWithDelay)(nil)
 var _ gotick.JobFactory = (*jobFactory)(nil)
 var _ gotick.ErrorObserver = (*errorObserver)(nil)
 
-func newJobWithDelay(id string, delay time.Duration) *jobWithDelay {
+func newJobWithDelay(id gotick.JobID, delay time.Duration) *jobWithDelay {
 	return &jobWithDelay{
 		id:    id,
 		delay: delay,
@@ -85,7 +85,7 @@ func TestJobShouldBeExecutedCorrectly(t *testing.T) {
 			name: "single calendar job",
 			jobs: []testJobs{
 				{
-					job: newJobWithDelay(uuid.NewString(), 0),
+					job: newJobWithDelay(gotick.JobID(uuid.NewString()), 0),
 					scheduleFactory: func() gotick.JobSchedule {
 						return gotick.NewCalendarSchedule(time.Now().Add(1 * time.Second))
 					},
@@ -120,7 +120,7 @@ func TestJobShouldBeExecutedCorrectly(t *testing.T) {
 			name: "single cron job",
 			jobs: []testJobs{
 				{
-					job: newJobWithDelay(uuid.NewString(), 0),
+					job: newJobWithDelay(gotick.JobID(uuid.NewString()), 0),
 					scheduleFactory: func() gotick.JobSchedule {
 						c, err := gotick.NewCronSchedule("* * * * *")
 						require.NoError(t, err)
@@ -155,6 +155,46 @@ func TestJobShouldBeExecutedCorrectly(t *testing.T) {
 				assert.Equal(t, gotick.JobExecutionStatusExecuted, job.executions[0].ExecutionStatus)
 			},
 		},
+		{
+			name: "single seq job",
+			jobs: []testJobs{
+				{
+					job: newJobWithDelay("job1", 0),
+					scheduleFactory: func() gotick.JobSchedule {
+						c, err := gotick.NewSequenceSchedule(
+							time.Now().Add(1*time.Second),
+							time.Now().Add(2*time.Second),
+							time.Now().Add(3*time.Second),
+							time.Now().Add(5*time.Second),
+							time.Now().Add(15*time.Second),
+						)
+						require.NoError(t, err)
+
+						return c
+					},
+				},
+			},
+			plannerCfg: func(j []*jobWithDelay) *gotick.PlannerConfig {
+				return gotick.DefaultPlannerConfig(gotick.WithJobFactory(&jobFactory{j}))
+			},
+			driverCfg: func() *pq.PqConfig {
+				return pq.DefaultPqConfig(
+					pq.WithErrorObservers(observer),
+					pq.WithConn(conn),
+				)
+			},
+			schedulerConfig: func(pc *gotick.PlannerConfig, pqc *pq.PqConfig) *gotick.SchedulerConfig {
+				return gotick.DefaultSchedulerConfig(
+					gotick.WithDefaultPlannerFactory(pc),
+					pq.WithPqDriver(pqc),
+				)
+			},
+			deadline: 30 * time.Second,
+			assertion: func(jf []testJobs) {
+				job := jf[0].job
+				assert.Len(t, job.executions, 5)
+			},
+		},
 	}
 
 	for _, d := range data {
@@ -169,7 +209,7 @@ func TestJobShouldBeExecutedCorrectly(t *testing.T) {
 				defer close()
 
 				for _, job := range jobs {
-					err := repo.UnscheduleJobByJobID(context.Background(), job.id)
+					err := repo.UnscheduleJobByJobID(context.Background(), string(job.id))
 					require.NoError(t, err)
 				}
 			}()

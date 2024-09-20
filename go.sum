@@ -6,6 +6,8 @@ github.com/go-sql-driver/mysql v1.8.1 h1:LedoTUt/eveggdHS9qUFC1EFSa8bU2+1pZjSRpv
 github.com/go-sql-driver/mysql v1.8.1/go.mod h1:wEBSXgmK//2ZFJyE+qWnIsVGmvmEKlqwuVSjsCm7DZg=
 github.com/go-tick/core v0.1.0-beta.1.0.20240920100958-73b7a008043d h1:/6lFRcSRgSH4AvNDllqo9pJ1kam0Z2ceJiecxxV6ioQ=
 github.com/go-tick/core v0.1.0-beta.1.0.20240920100958-73b7a008043d/go.mod h1:tr9YUw0eUcsTAWAqXczFJbwEqUwr2N36Qg+ZWZhhKfc=
+github.com/go-tick/core v0.1.0-beta.1.0.20240920133643-a8365069d2f9 h1:Qm7XUe0GpGRwt8f3vutrnc8hqRBEk7xliWF2U3+ua/E=
+github.com/go-tick/core v0.1.0-beta.1.0.20240920133643-a8365069d2f9/go.mod h1:tr9YUw0eUcsTAWAqXczFJbwEqUwr2N36Qg+ZWZhhKfc=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/jmoiron/sqlx v1.4.0 h1:1PLqN7S1UYp5t4SrVVnt4nUVNemrDAtxlulVe+Qgm3o=
