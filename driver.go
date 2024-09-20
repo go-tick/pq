@@ -10,61 +10,47 @@ import (
 	"github.com/go-tick/pq/internal/model"
 	"github.com/go-tick/pq/internal/repository"
 	"github.com/google/uuid"
-
-	_ "github.com/lib/pq"
 )
 
 type repositoryFactoryWoTx func(context.Context, string) (repository.Repository, func() error, error)
 type repositoryFactoryWithTx func(context.Context, string, *sql.TxOptions) (repository.Repository, func() error, error)
-
-type plannedExecution struct {
-	id      string
-	nextRun time.Time
-}
 
 type driver struct {
 	cfg                     *PqConfig
 	memberID                string
 	repositoryFactoryWoTx   repositoryFactoryWoTx
 	repositoryFactoryWithTx repositoryFactoryWithTx
-	cancel                  context.CancelFunc
-	listeners               []ErrorListener
+	observers               []gotick.ErrorObserver
 }
 
 func (d *driver) OnBeforeJobExecution(*gotick.JobExecutionContext) {
-	panic("unimplemented")
 }
 
 func (d *driver) OnBeforeJobExecutionPlan(*gotick.JobExecutionContext) {
-	panic("unimplemented")
 }
 
-func (d *driver) OnJobExecuted(*gotick.JobExecutionContext) {
-	panic("unimplemented")
+func (d *driver) OnJobExecuted(ctx *gotick.JobExecutionContext) {
+	d.onJobExecuted(ctx)
 }
 
 func (d *driver) OnJobExecutionDelayed(*gotick.JobExecutionContext) {
-	panic("unimplemented")
 }
 
 func (d *driver) OnJobExecutionInitiated(*gotick.JobExecutionContext) {
-	panic("unimplemented")
 }
 
-func (d *driver) OnJobExecutionSkipped(*gotick.JobExecutionContext) {
-	panic("unimplemented")
+func (d *driver) OnJobExecutionSkipped(ctx *gotick.JobExecutionContext) {
+	d.onJobExecuted(ctx)
 }
 
-func (d *driver) OnJobExecutionUnplanned(*gotick.JobExecutionContext) {
-	panic("unimplemented")
+func (d *driver) OnJobExecutionUnplanned(ctx *gotick.JobExecutionContext) {
+	d.onJobUnplanned(ctx)
 }
 
 func (d *driver) OnStart() {
-	panic("unimplemented")
 }
 
 func (d *driver) OnStop() {
-	panic("unimplemented")
 }
 
 func (d *driver) Start(context.Context) error {
@@ -75,7 +61,11 @@ func (d *driver) Stop() error {
 	return nil
 }
 
-func (d *driver) NextExecution(ctx context.Context) *gotick.NextExecutionResult {
+func (d *driver) Subscribe(observer gotick.ErrorObserver) {
+	d.observers = append(d.observers, observer)
+}
+
+func (d *driver) NextExecution(ctx context.Context) (execution *gotick.NextExecutionResult) {
 	repo, close, err := d.repositoryFactoryWithTx(ctx, d.cfg.conn, nil)
 	if err != nil {
 		return nil
@@ -83,31 +73,29 @@ func (d *driver) NextExecution(ctx context.Context) *gotick.NextExecutionResult 
 	defer close()
 
 	offset := 0
-	jobsToUnschedule := make([]string, 0)
-	plannedExecutions := make([]plannedExecution, 0)
-	var execution *gotick.NextExecutionResult
 
 	for {
-		schedules, err := repo.NextExecutions(ctx, 10, offset)
+		schedules, err := repo.NextExecutions(ctx, d.cfg.batchSize, uint(offset))
+		offset = offset + len(schedules)
+
 		if err != nil {
 			d.onError(err)
 			return nil
+		}
+
+		if len(schedules) == 0 {
+			break
 		}
 
 		for _, entry := range schedules {
 			sch, err := d.cfg.scheduleDeserializer(PqJobSchedule{
 				ScheduleType: entry.ScheduleType,
 				Schedule:     entry.Schedule,
-				MaxDelay:     entry.MaxDelay,
+				Metadata:     entry.Metadata,
 			})
 			if err != nil {
 				d.onError(err)
 				return nil
-			}
-
-			if entry.NextRun == nil {
-				jobsToUnschedule = append(jobsToUnschedule, entry.ID)
-				continue
 			}
 
 			if execution == nil || execution.PlannedAt.After(*entry.NextRun) {
@@ -117,16 +105,35 @@ func (d *driver) NextExecution(ctx context.Context) *gotick.NextExecutionResult 
 					ScheduleID: entry.ID,
 					PlannedAt:  *entry.NextRun,
 				}
-			} else {
-				plannedExecutions = append(plannedExecutions, plannedExecution{
-					id:      entry.ID,
-					nextRun: *entry.NextRun,
-				})
 			}
 		}
 	}
 
-	panic("unimplemented")
+	if execution != nil {
+		lockUntil := time.Now().Add(d.cfg.lockTimeout)
+		if timeout, ok := gotick.TimeoutFromJobSchedule(execution.Schedule); ok {
+			lockUntil = execution.PlannedAt.Add(timeout)
+		}
+
+		locked, err := repo.LockJobSchedule(ctx, d.memberID, execution.ScheduleID, lockUntil)
+		if err != nil {
+			d.onError(err)
+			return nil
+		}
+
+		if !locked {
+			d.onError(ErrCannotLockJob)
+			return nil
+		}
+	}
+
+	err = repo.Commit(ctx)
+	if err != nil {
+		d.onError(err)
+		return nil
+	}
+
+	return execution
 }
 
 func (d *driver) ScheduleJob(ctx context.Context, jobID string, schedule gotick.JobSchedule) (string, error) {
@@ -141,13 +148,13 @@ func (d *driver) ScheduleJob(ctx context.Context, jobID string, schedule gotick.
 		return "", err
 	}
 
-	next := schedule.First()
+	first := schedule.First()
 	entry := model.JobSchedule{
 		JobID:        jobID,
 		ScheduleType: sch.ScheduleType,
 		Schedule:     sch.Schedule,
-		MaxDelay:     sch.MaxDelay,
-		NextRun:      &next,
+		Metadata:     sch.Metadata,
+		NextRun:      &first,
 	}
 
 	return repo.ScheduleJob(ctx, entry)
@@ -173,14 +180,56 @@ func (d *driver) UnscheduleJobByScheduleID(ctx context.Context, scheduleID strin
 	return repo.UnscheduleJobByScheduleID(ctx, scheduleID)
 }
 
+func (d *driver) onJobExecuted(ctx *gotick.JobExecutionContext) {
+	repo, close, err := d.repositoryFactoryWoTx(ctx, d.cfg.conn)
+	if err != nil {
+		d.onError(err)
+		return
+	}
+	defer close()
+
+	nextRun := ctx.Schedule.Next(ctx.PlannedAt)
+	if nextRun == nil {
+		err = repo.UnscheduleJobByScheduleID(ctx, ctx.ScheduleID)
+	} else {
+		err = repo.UpdateNextRun(ctx, ctx.ScheduleID, ctx.PlannedAt, *nextRun)
+	}
+
+	if err != nil {
+		d.onError(err)
+		return
+	}
+}
+
+func (d *driver) onJobUnplanned(ctx *gotick.JobExecutionContext) {
+	repo, close, err := d.repositoryFactoryWoTx(ctx, d.cfg.conn)
+	if err != nil {
+		d.onError(err)
+		return
+	}
+	defer close()
+
+	unlocked, err := repo.UnlockJobSchedule(ctx, d.memberID, ctx.ScheduleID)
+	if err != nil {
+		d.onError(err)
+		return
+	}
+
+	if !unlocked {
+		d.onError(ErrCannotUnlockJob)
+		return
+	}
+}
+
 func (d *driver) onError(err error) {
-	for _, listener := range d.listeners {
+	for _, listener := range d.observers {
 		listener.OnError(err)
 	}
 }
 
 var _ gotick.SchedulerDriver = &driver{}
-var _ gotick.SchedulerSubscriber = &driver{}
+var _ gotick.SchedulerObserver = &driver{}
+var _ gotick.Publisher[gotick.ErrorObserver] = &driver{}
 
 func newDriver(cfg *PqConfig, factByConnStr repositoryFactoryWoTx, factByConn repositoryFactoryWithTx) *driver {
 	return &driver{
@@ -188,7 +237,6 @@ func newDriver(cfg *PqConfig, factByConnStr repositoryFactoryWoTx, factByConn re
 		memberID:                uuid.NewString(),
 		repositoryFactoryWoTx:   factByConnStr,
 		repositoryFactoryWithTx: factByConn,
-		cancel:                  func() {},
-		listeners:               slices.Clone(cfg.errorListeners),
+		observers:               slices.Clone(cfg.errorObservers),
 	}
 }

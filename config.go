@@ -1,6 +1,8 @@
 package pq
 
 import (
+	"time"
+
 	gotick "github.com/go-tick/core"
 	"github.com/go-tick/pq/internal/repository"
 )
@@ -9,16 +11,21 @@ type PqScheduleSerializer func(gotick.JobSchedule) (PqJobSchedule, error)
 type PqScheduleDeserializer func(PqJobSchedule) (gotick.JobSchedule, error)
 
 type PqConfig struct {
-	conn string
+	conn        string
+	lockTimeout time.Duration
+	batchSize   uint
 
 	scheduleSerializer   PqScheduleSerializer
 	scheduleDeserializer PqScheduleDeserializer
 
-	errorListeners []ErrorListener
+	errorObservers []gotick.ErrorObserver
 }
 
 func DefaultPqConfig(options ...gotick.Option[PqConfig]) *PqConfig {
 	config := &PqConfig{
+		lockTimeout: 1 * time.Hour,
+		batchSize:   10,
+
 		scheduleSerializer:   DefaultScheduleSerializer,
 		scheduleDeserializer: DefaultScheduleDeserializer,
 	}
@@ -36,6 +43,18 @@ func WithPqDriver(cfg *PqConfig) gotick.Option[gotick.SchedulerConfig] {
 		gotick.WithSubscribers(driver)(sc)
 		return driver, nil
 	})
+}
+
+func WithLockTimeout(timeout time.Duration) gotick.Option[PqConfig] {
+	return func(config *PqConfig) {
+		config.lockTimeout = timeout
+	}
+}
+
+func WithBatchSize(size uint) gotick.Option[PqConfig] {
+	return func(config *PqConfig) {
+		config.batchSize = size
+	}
 }
 
 func WithConn(conn string) gotick.Option[PqConfig] {
@@ -56,8 +75,8 @@ func WithScheduleDeserializer(deserializer PqScheduleDeserializer) gotick.Option
 	}
 }
 
-func WithErrorListeners(listeners ...ErrorListener) gotick.Option[PqConfig] {
+func WithErrorObservers(observers ...gotick.ErrorObserver) gotick.Option[PqConfig] {
 	return func(config *PqConfig) {
-		config.errorListeners = append(config.errorListeners, listeners...)
+		config.errorObservers = append(config.errorObservers, observers...)
 	}
 }

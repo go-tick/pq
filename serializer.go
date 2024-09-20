@@ -1,6 +1,7 @@
 package pq
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -11,16 +12,24 @@ import (
 type PqJobSchedule struct {
 	ScheduleType string
 	Schedule     string
-	MaxDelay     *time.Duration
+	Metadata     []byte
 }
 
 func DefaultScheduleSerializer(schedule gotick.JobSchedule) (PqJobSchedule, error) {
 	s := schedule.Schedule()
+	metadata := make(map[string]any)
 
-	var maxDelay *time.Duration
-	if mds, ok := schedule.(gotick.MaxDelay); ok {
-		md := mds.MaxDelay()
-		maxDelay = &md
+	if md, ok := gotick.MaxDelayFromJobSchedule(schedule); ok {
+		metadata["max_delay"] = md
+	}
+
+	if tm, ok := gotick.TimeoutFromJobSchedule(schedule); ok {
+		metadata["timeout"] = tm
+	}
+
+	mdata, err := json.Marshal(metadata)
+	if err != nil {
+		return PqJobSchedule{}, err
 	}
 
 	if _, err := cron.ParseStandard(s); err == nil {
@@ -28,14 +37,14 @@ func DefaultScheduleSerializer(schedule gotick.JobSchedule) (PqJobSchedule, erro
 		return PqJobSchedule{
 			ScheduleType: "cron",
 			Schedule:     s,
-			MaxDelay:     maxDelay,
+			Metadata:     mdata,
 		}, nil
 	}
 
 	if strings.Contains(s, ",") {
 		// it's seq
 		for _, ts := range strings.Split(s, ",") {
-			if _, err := time.Parse(time.RFC3339, ts); err != nil {
+			if _, err := time.Parse(time.RFC3339Nano, ts); err != nil {
 				return PqJobSchedule{}, ErrCannotParseSchedule
 			}
 		}
@@ -43,11 +52,11 @@ func DefaultScheduleSerializer(schedule gotick.JobSchedule) (PqJobSchedule, erro
 		return PqJobSchedule{
 			ScheduleType: "seq",
 			Schedule:     s,
-			MaxDelay:     maxDelay,
+			Metadata:     mdata,
 		}, nil
 	}
 
-	if _, err := time.Parse(time.RFC3339, s); err != nil {
+	if _, err := time.Parse(time.RFC3339Nano, s); err != nil {
 		return PqJobSchedule{}, ErrCannotParseSchedule
 	}
 
@@ -55,7 +64,7 @@ func DefaultScheduleSerializer(schedule gotick.JobSchedule) (PqJobSchedule, erro
 	return PqJobSchedule{
 		ScheduleType: "calendar",
 		Schedule:     s,
-		MaxDelay:     maxDelay,
+		Metadata:     mdata,
 	}, nil
 }
 
@@ -71,8 +80,8 @@ func DefaultScheduleDeserializer(schedule PqJobSchedule) (gotick.JobSchedule, er
 		}
 	case "seq":
 		tt := make([]time.Time, 0)
-		for _, ts := range strings.Split(",", schedule.Schedule) {
-			t, err := time.Parse(time.RFC3339, ts)
+		for _, ts := range strings.Split(schedule.Schedule, ",") {
+			t, err := time.Parse(time.RFC3339Nano, ts)
 			if err != nil {
 				return nil, err
 			}
@@ -85,7 +94,7 @@ func DefaultScheduleDeserializer(schedule PqJobSchedule) (gotick.JobSchedule, er
 			return nil, err
 		}
 	case "calendar":
-		t, err := time.Parse(time.RFC3339, schedule.Schedule)
+		t, err := time.Parse(time.RFC3339Nano, schedule.Schedule)
 		if err != nil {
 			return nil, err
 		}
@@ -95,8 +104,23 @@ func DefaultScheduleDeserializer(schedule PqJobSchedule) (gotick.JobSchedule, er
 		return nil, ErrUnknownScheduleType
 	}
 
-	if schedule.MaxDelay != nil {
-		result = gotick.NewJobScheduleWithMaxDelay(result, *schedule.MaxDelay)
+	if schedule.Metadata != nil {
+		var metadata map[string]any
+		if err := json.Unmarshal(schedule.Metadata, &metadata); err != nil {
+			return nil, err
+		}
+
+		if md, ok := metadata["max_delay"]; ok {
+			if delay, ok := md.(float64); ok {
+				result = gotick.NewJobScheduleWithMaxDelay(result, time.Duration(delay))
+			}
+		}
+
+		if tm, ok := metadata["timeout"]; ok {
+			if timeout, ok := tm.(float64); ok {
+				result = gotick.NewJobScheduleWithTimeout(result, time.Duration(timeout))
+			}
+		}
 	}
 
 	return result, err

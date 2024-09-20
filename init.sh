@@ -1,7 +1,6 @@
 #!/bin/bash
 
 echo 'Waiting for postgres...'
-echo "POSTGRES_HOST: $POSTGRES_HOST"
 while ! pg_isready -h "$POSTGRES_HOST" -p 5432 > /dev/null 2>&1; do
     sleep 1
 done

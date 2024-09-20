@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-tick/pq/internal/model"
 	"github.com/jmoiron/sqlx"
+
+	_ "github.com/lib/pq"
 )
 
 var (
@@ -16,13 +18,14 @@ var (
 )
 
 type Repository interface {
+	Commit(context.Context) error
 	ScheduleJob(ctx context.Context, sch model.JobSchedule) (string, error)
 	UnscheduleJobByJobID(ctx context.Context, jobID string) error
 	UnscheduleJobByScheduleID(ctx context.Context, scheduleID string) error
-	NextExecutions(ctx context.Context, limit, offset int) ([]model.JobSchedule, error)
+	NextExecutions(ctx context.Context, limit, offset uint) ([]model.JobSchedule, error)
 	LockJobSchedule(ctx context.Context, lockedBy string, scheduleID string, deadline time.Time) (bool, error)
 	UnlockJobSchedule(ctx context.Context, lockedBy string, scheduleID string) (bool, error)
-	UpdateNextRun(ctx context.Context, scheduleID string, nextRun time.Time) error
+	UpdateNextRun(ctx context.Context, scheduleID string, lastRun, nextRun time.Time) error
 }
 
 type Connection interface {
@@ -31,13 +34,16 @@ type Connection interface {
 	SelectContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 }
 
-type transactionalConnection interface {
-	Connection
-	BeginTxx(ctx context.Context, opts *sql.TxOptions) (*sqlx.Tx, error)
-}
-
 type repository struct {
 	db Connection
+}
+
+func (r *repository) Commit(ctx context.Context) error {
+	if tx, ok := r.db.(*sqlx.Tx); ok {
+		return tx.Commit()
+	}
+
+	return ErrTransactionNotSupported
 }
 
 func (r *repository) ScheduleJob(ctx context.Context, sch model.JobSchedule) (string, error) {
@@ -49,8 +55,8 @@ func (r *repository) ScheduleJob(ctx context.Context, sch model.JobSchedule) (st
 		sch.JobID,
 		sch.ScheduleType,
 		sch.Schedule,
-		sch.MaxDelay,
-		sch.NextRun,
+		sch.NextRun.UTC(),
+		sch.Metadata,
 	)
 
 	return scheduleID, err
@@ -66,12 +72,12 @@ func (r *repository) UnscheduleJobByScheduleID(ctx context.Context, scheduleID s
 	return err
 }
 
-func (r *repository) NextExecutions(ctx context.Context, limit, offset int) ([]model.JobSchedule, error) {
+func (r *repository) NextExecutions(ctx context.Context, limit, offset uint) ([]model.JobSchedule, error) {
 	var schedules []model.JobSchedule
 	err := r.db.SelectContext(
 		ctx,
 		&schedules,
-		`CALL next_executions($1, $2)`,
+		`SELECT * FROM next_executions($1, $2)`,
 		limit,
 		offset,
 	)
@@ -79,7 +85,7 @@ func (r *repository) NextExecutions(ctx context.Context, limit, offset int) ([]m
 	return schedules, err
 }
 
-func (r *repository) LockJobSchedule(ctx context.Context, lockedBy string, scheduleID string, deadline time.Time) (bool, error) {
+func (r *repository) LockJobSchedule(ctx context.Context, lockedBy string, scheduleID string, lockedUntil time.Time) (bool, error) {
 	var locked bool
 	err := r.db.GetContext(
 		ctx,
@@ -87,7 +93,7 @@ func (r *repository) LockJobSchedule(ctx context.Context, lockedBy string, sched
 		`SELECT lock_job_schedule($1, $2, $3)`,
 		scheduleID,
 		lockedBy,
-		deadline,
+		lockedUntil.UTC(),
 	)
 
 	return locked, err
@@ -106,8 +112,15 @@ func (r *repository) UnlockJobSchedule(ctx context.Context, lockedBy string, sch
 	return unlocked, err
 }
 
-func (r *repository) UpdateNextRun(ctx context.Context, scheduleID string, nextRun time.Time) error {
-	_, err := r.db.ExecContext(ctx, `CALL update_next_run($1, $2)`, scheduleID, nextRun)
+func (r *repository) UpdateNextRun(ctx context.Context, scheduleID string, lastRun, nextRun time.Time) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		`CALL update_next_run($1, $2, $3)`,
+		scheduleID,
+		lastRun.UTC(),
+		nextRun.UTC(),
+	)
+
 	return err
 }
 
