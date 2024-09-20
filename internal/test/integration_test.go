@@ -108,9 +108,47 @@ func TestJobShouldBeExecutedCorrectly(t *testing.T) {
 			},
 			deadline: 3 * time.Second,
 			assertion: func(jf []testJobs) {
-				// the job should be executed once at a specific time
 				job := jf[0].job
 				assert.Len(t, job.executions, 1)
+
+				assert.LessOrEqual(t, job.executions[0].PlannedAt, job.executions[0].StartedAt)
+				assert.LessOrEqual(t, job.executions[0].StartedAt, job.executions[0].ExecutedAt)
+				assert.Equal(t, gotick.JobExecutionStatusExecuted, job.executions[0].ExecutionStatus)
+			},
+		},
+		{
+			name: "single cron job",
+			jobs: []testJobs{
+				{
+					job: newJobWithDelay(uuid.NewString(), 0),
+					scheduleFactory: func() gotick.JobSchedule {
+						c, err := gotick.NewCronSchedule("* * * * *")
+						require.NoError(t, err)
+
+						return c
+					},
+				},
+			},
+			plannerCfg: func(j []*jobWithDelay) *gotick.PlannerConfig {
+				return gotick.DefaultPlannerConfig(gotick.WithJobFactory(&jobFactory{j}))
+			},
+			driverCfg: func() *pq.PqConfig {
+				return pq.DefaultPqConfig(
+					pq.WithErrorObservers(observer),
+					pq.WithConn(conn),
+				)
+			},
+			schedulerConfig: func(pc *gotick.PlannerConfig, pqc *pq.PqConfig) *gotick.SchedulerConfig {
+				return gotick.DefaultSchedulerConfig(
+					gotick.WithDefaultPlannerFactory(pc),
+					pq.WithPqDriver(pqc),
+				)
+			},
+			deadline: 1*time.Minute + 10*time.Second,
+			assertion: func(jf []testJobs) {
+				job := jf[0].job
+				assert.LessOrEqual(t, 1, len(job.executions))
+				assert.GreaterOrEqual(t, 2, len(job.executions))
 
 				assert.LessOrEqual(t, job.executions[0].PlannedAt, job.executions[0].StartedAt)
 				assert.LessOrEqual(t, job.executions[0].StartedAt, job.executions[0].ExecutedAt)

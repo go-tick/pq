@@ -188,7 +188,9 @@ func (d *driver) onJobExecuted(ctx *gotick.JobExecutionContext) {
 	}
 	defer close()
 
-	nextRun := ctx.Schedule.Next(ctx.PlannedAt)
+	// add microsecond to planned at time as Postgres has a limitation on the precision of the timestamp.
+	// without this, the next run will be the same as the planned at time.
+	nextRun := ctx.Schedule.Next(ctx.PlannedAt.Add(time.Microsecond))
 	if nextRun == nil {
 		err = repo.UnscheduleJobByScheduleID(ctx, ctx.ScheduleID)
 	} else {
